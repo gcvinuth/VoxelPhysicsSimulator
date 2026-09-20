@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Voxel Celestial Mechanics Simulator</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        dark: { 950: '#06080e', 900: '#0b0f19', 800: '#131a2b', 700: '#1e293b' },
+                        accent: { cyan: '#00f0ff', magenta: '#ff007f', yellow: '#ffd000', green: '#00ff88' }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Three.js & OrbitControls CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        * { touch-action: manipulation; }
+        body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #06080e; color: #f1f5f9; }
+        canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+        
+        /* Minimalist Glassmorphism */
+        .min-glass {
+            background: rgba(11, 15, 25, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .min-btn {
+            background: rgba(19, 26, 43, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .min-btn:hover, .min-btn:active {
+            background: rgba(0, 240, 255, 0.15);
+            border-color: rgba(0, 240, 255, 0.5);
+            color: #00f0ff;
+        }
+        .min-btn.active {
+            background: rgba(0, 240, 255, 0.25);
+            border-color: #00f0ff;
+            color: #00f0ff;
+            box-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
+        }
+
+        /* Minimal Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
+    </style>
+</head>
+<body class="h-full select-none overflow-hidden">
+    
+    <!-- 3D Canvas WebGL Container -->
+    <div id="canvas-container" class="absolute inset-0 z-0"></div>
+
+    <!-- UI Overlay Layer -->
+    <div class="relative z-10 flex flex-col h-full pointer-events-none p-3 sm:p-5 justify-between">
+        
+        <!-- Top Minimalist HUD Navigation -->
+        <header class="flex items-center justify-between gap-2 pointer-events-auto">
+            <!-- App Logo & Title -->
+            <div class="min-glass rounded-2xl px-3.5 py-2 flex items-center gap-2.5 shadow-lg">
+                <div class="w-2.5 h-2.5 rounded-full bg-accent-cyan animate-ping"></div>
+                <div>
+                    <h1 class="text-xs font-bold tracking-wider text-white uppercase flex items-center gap-1.5">
+                        Voxel PhysX <span class="text-[10px] text-accent-cyan font-mono opacity-80">v3.0</span>
+                    </h1>
+                </div>
+            </div>
+
+            <!-- Quick Action Buttons Bar -->
+            <div class="min-glass rounded-2xl p-1.5 flex items-center gap-1.5 shadow-lg">
+                <button id="btn-play-pause" class="min-btn w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-accent-cyan" title="Play/Pause">
+                    <i class="fa-solid fa-pause text-sm"></i>
+                </button>
+                <button id="btn-step" class="min-btn w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-slate-300" title="Step Frame">
+                    <i class="fa-solid fa-forward-step text-xs"></i>
+                </button>
+                <button id="btn-reset" class="min-btn w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-red-400" title="Clear All">
+                    <i class="fa-solid fa-rotate-left text-xs"></i>
+                </button>
+
+                <div class="h-5 w-px bg-slate-700/60 mx-0.5"></div>
+
+                <!-- Launch Mode Toggle -->
+                <button id="btn-spawn-mode" class="min-btn px-3 h-9 sm:h-10 rounded-xl text-xs font-semibold text-accent-cyan flex items-center gap-1.5">
+                    <i class="fa-solid fa-rocket text-xs"></i>
+                    <span class="hidden sm:inline">Launch Body</span>
+                </button>
+
+                <!-- Drawer Menu Toggle Button -->
+                <button id="btn-drawer-toggle" class="min-btn w-9 h-9 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-slate-200" title="Open Settings & Presets">
+                    <i class="fa-solid fa-sliders text-sm"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Bottom Floating Visual Field Toggles & Stats Bar -->
+        <footer class="flex flex-col sm:flex-row items-center justify-between pointer-events-auto gap-2">
+            <!-- Quick Field Visualizer Toggles Dock -->
+            <div class="min-glass rounded-2xl p-1.5 flex items-center gap-1 sm:gap-1.5 shadow-lg w-full sm:w-auto justify-center">
+                <button id="btn-toggle-grid" class="min-btn active px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs flex items-center gap-1.5" title="Gravity Grid">
+                    <i class="fa-solid fa-border-all text-accent-cyan"></i>
+                    <span class="text-[11px] font-medium hidden xs:inline">Grid</span>
+                </button>
+                <button id="btn-toggle-magnetic" class="min-btn active px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs flex items-center gap-1.5" title="Magnetic Dipoles">
+                    <i class="fa-solid fa-magnet text-accent-magenta"></i>
+                    <span class="text-[11px] font-medium hidden xs:inline">Field</span>
+                </button>
+                <button id="btn-toggle-orbits" class="min-btn active px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs flex items-center gap-1.5" title="Orbit Trajectories">
+                    <i class="fa-solid fa-route text-accent-yellow"></i>
+                    <span class="text-[11px] font-medium hidden xs:inline">Orbits</span>
+                </button>
+                
+                <div class="h-5 w-px bg-slate-700/60 mx-0.5"></div>
+
+                <!-- Camera Reset / Focus controls -->
+                <button id="btn-cam-reset" class="min-btn p-2 sm:px-3 sm:py-2 rounded-xl text-xs text-slate-300" title="Reset Camera">
+                    <i class="fa-solid fa-crosshairs"></i>
+                </button>
+            </div>
+
+            <!-- Stats Bar -->
+            <div class="min-glass rounded-2xl px-3.5 py-1.5 flex items-center gap-3 text-[11px] font-mono text-slate-400 w-full sm:w-auto justify-between sm:justify-end">
+                <div>Bodies: <span id="stat-bodies" class="text-accent-cyan font-bold">0</span></div>
+                <div>Voxels: <span id="stat-voxels" class="text-accent-cyan font-bold">0</span></div>
+                <div>FPS: <span id="stat-fps" class="text-accent-green font-bold">60</span></div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Slide-Out Collapsible Settings & Presets Drawer Panel -->
+    <div id="drawer-panel" class="fixed inset-y-0 right-0 z-30 w-full max-w-xs sm:max-w-sm min-glass shadow-2xl transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col p-4 overflow-y-auto">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-700/60 mb-4">
+            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <i class="fa-solid fa-sliders text-accent-cyan"></i> Physics & Configuration
+            </h2>
+            <button id="btn-drawer-close" class="min-btn w-7 h-7 rounded-lg text-slate-400 hover:text-white flex items-center justify-center">
+                <i class="fa-solid fa-xmark text-sm"></i>
+            </button>
+        </div>
+
+        <!-- Drawer Navigation Tabs -->
+        <div class="flex border-b border-slate-700/60 pb-2 mb-4 gap-1 text-xs">
+            <button id="tab-presets" class="flex-1 py-1.5 rounded-lg text-center font-semibold text-accent-cyan bg-dark-800 border border-accent-cyan/30">Presets</button>
+            <button id="tab-create" class="flex-1 py-1.5 rounded-lg text-center font-semibold text-slate-400 hover:text-white">Spawner</button>
+            <button id="tab-physics" class="flex-1 py-1.5 rounded-lg text-center font-semibold text-slate-400 hover:text-white">Params</button>
+            <button id="tab-inspect" class="flex-1 py-1.5 rounded-lg text-center font-semibold text-slate-400 hover:text-white">Inspect</button>
+        </div>
+
+        <!-- TAB 1: PRESETS -->
+        <div id="content-presets" class="space-y-2.5 text-xs">
+            <label class="block text-slate-400 font-medium text-[11px] uppercase tracking-wide">Select Scenario Preset</label>
+            <button class="preset-btn min-btn w-full p-2.5 rounded-xl text-left flex items-center justify-between" data-preset="solar">
+                <span>🪐 Solar System</span>
+                <i class="fa-solid fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+            <button class="preset-btn min-btn w-full p-2.5 rounded-xl text-left flex items-center justify-between" data-preset="binary">
+                <span>🌟 Binary Magnetars</span>
+                <i class="fa-solid fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+            <button class="preset-btn min-btn w-full p-2.5 rounded-xl text-left flex items-center justify-between" data-preset="3body">
+                <span>🌀 Chaotic 3-Body Problem</span>
+                <i class="fa-solid fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+            <button class="preset-btn min-btn w-full p-2.5 rounded-xl text-left flex items-center justify-between" data-preset="magnetar">
+                <span>🧲 Magnetic Particle Trap</span>
+                <i class="fa-solid fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+            <button class="preset-btn min-btn w-full p-2.5 rounded-xl text-left flex items-center justify-between" data-preset="ring">
+                <span>🪐 Voxel Ring World</span>
+                <i class="fa-solid fa-chevron-right text-[10px] opacity-50"></i>
+            </button>
+        </div>
+
+        <!-- TAB 2: SPAWNER / CREATOR -->
+        <div id="content-create" class="hidden space-y-3 text-xs">
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">Voxel Geometry Shape</label>
+                <select id="spawn-shape" class="min-btn w-full p-2 rounded-xl text-slate-200 outline-none bg-dark-900">
+                    <option value="sphere">Voxel Sphere</option>
+                    <option value="cube">Voxel Cube Monolith</option>
+                    <option value="ring">Voxel Torus Ring</option>
+                    <option value="asteroid">Irregular Asteroid Chunk</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">Material Composition</label>
+                <select id="spawn-material" class="min-btn w-full p-2 rounded-xl text-slate-200 outline-none bg-dark-900">
+                    <option value="rock">🪨 Rocky Crust</option>
+                    <option value="iron">🧲 Iron Core (High Magnetism)</option>
+                    <option value="ice">🧊 Volatile Ice</option>
+                    <option value="plasma">☀️ Stellar Plasma (Ultra Mass)</option>
+                </select>
+            </div>
+
+            <div>
+                <div class="flex justify-between mb-1 text-slate-300">
+                    <span>Radius</span>
+                    <span id="spawn-radius-val" class="text-accent-cyan font-mono">3.0</span>
+                </div>
+                <input type="range" id="spawn-radius" min="1" max="8" step="0.5" value="3.0" class="w-full accent-accent-cyan">
+            </div>
+
+            <div>
+                <div class="flex justify-between mb-1 text-slate-300">
+                    <span>Magnetic Dipole</span>
+                    <span id="spawn-mag-val" class="text-accent-magenta font-mono">5.0</span>
+                </div>
+                <input type="range" id="spawn-mag" min="-20" max="20" step="1" value="5.0" class="w-full accent-accent-magenta">
+            </div>
+
+            <div class="p-2.5 bg-accent-cyan/10 border border-accent-cyan/20 rounded-xl text-slate-300 text-[11px] leading-relaxed">
+                <b>Touch / Click Controls:</b> Enable Launch Mode, tap canvas to place, drag vector arrow to set launch velocity.
+            </div>
+        </div>
+
+        <!-- TAB 3: PHYSICS PARAMS -->
+        <div id="content-physics" class="hidden space-y-3.5 text-xs">
+            <div>
+                <div class="flex justify-between mb-1 text-slate-300">
+                    <span>Gravitational Constant (G)</span>
+                    <span id="g-const-val" class="text-accent-cyan font-mono">1.0</span>
+                </div>
+                <input type="range" id="g-constant" min="0" max="5" step="0.1" value="1.0" class="w-full accent-accent-cyan">
+            </div>
+
+            <div>
+                <div class="flex justify-between mb-1 text-slate-300">
+                    <span>Magnetic Field (&mu;<sub>0</sub>)</span>
+                    <span id="mu-const-val" class="text-accent-magenta font-mono">2.0</span>
+                </div>
+                <input type="range" id="mu-constant" min="0" max="10" step="0.2" value="2.0" class="w-full accent-accent-magenta">
+            </div>
+
+            <div>
+                <div class="flex justify-between mb-1 text-slate-300">
+                    <span>Time Warp Speed</span>
+                    <span id="speed-label" class="text-accent-yellow font-mono">1.0x</span>
+                </div>
+                <input type="range" id="time-speed" min="0" max="4" step="0.1" value="1" class="w-full accent-accent-yellow">
+            </div>
+
+            <div>
+                <label class="block text-slate-400 mb-1 font-medium">Collision Physics</label>
+                <select id="collision-mode" class="min-btn w-full p-2 rounded-xl text-slate-200 outline-none bg-dark-900">
+                    <option value="merge">Inelastic Merge (Absorb)</option>
+                    <option value="bounce">Elastic Bounce</option>
+                    <option value="ignore">Ghost Pass-Through</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- TAB 4: INSPECTOR -->
+        <div id="content-inspect" class="hidden space-y-3 text-xs">
+            <div id="inspect-none" class="p-4 text-center text-slate-500 italic">
+                Tap or click any voxel celestial body in space to inspect and track.
+            </div>
+            <div id="inspect-content" class="hidden space-y-3">
+                <div class="p-3 bg-dark-900 rounded-xl border border-slate-700/60 space-y-1">
+                    <h3 id="inspect-title" class="font-bold text-accent-cyan">Celestial Body</h3>
+                    <p class="text-slate-400">Voxels: <span id="inspect-voxels" class="text-white font-mono">0</span></p>
+                    <p class="text-slate-400">Mass: <span id="inspect-mass" class="text-white font-mono">0</span></p>
+                </div>
+
+                <div class="flex gap-2">
+                    <button id="btn-inspect-track" class="min-btn flex-1 py-2 rounded-xl text-accent-yellow font-semibold">
+                        <i class="fa-solid fa-crosshairs mr-1"></i> Track Focus
+                    </button>
+                    <button id="btn-inspect-delete" class="min-btn flex-1 py-2 rounded-xl text-red-400 font-semibold">
+                        <i class="fa-solid fa-trash mr-1"></i> Destroy
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast Popup -->
+    <div id="toast-msg" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 min-glass px-4 py-2 rounded-xl border border-accent-cyan/40 text-accent-cyan text-xs font-semibold shadow-2xl opacity-0 transition-opacity pointer-events-none">
+        Notification
+    </div>
+
+    <script>
+        (function setupPWA() {
+            const manifest = {
+                name: "Voxel Celestial Simulator",
+                short_name: "VoxelPhysX",
+                start_url: ".",
+                display: "standalone",
+                background_color: "#06080e",
+                theme_color: "#00f0ff",
+                icons: [{
+                    src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%2306080e'/><circle cx='50' cy='50' r='30' fill='%2300f0ff'/></svg>",
+                    sizes: "192x192 512x512",
+                    type: "image/svg+xml"
+                }]
+            };
+            const manifestStr = 'data:application/manifest+json;base64,' + btoa(JSON.stringify(manifest));
+            const link = document.createElement('link');
+            link.rel = 'manifest';
+            link.href = manifestStr;
+            document.head.appendChild(link);
+
+            if ('serviceWorker' in navigator) {
+                const swCode = `
+                    self.addEventListener('install', e => self.skipWaiting());
+                    self.addEventListener('fetch', e => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
+                `;
+                const blob = new Blob([swCode], { type: 'text/javascript' });
+                navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(() => {});
+            }
+        })();
+    </script>
+
+    <script>
+        const PHYSICS = {
+            G: 1.0,
+            MU0: 2.0,
+            softeningSq: 2.25,
+            timeStep: 0.016,
+            timeScale: 1.0,
+            collisionMode: 'merge'
+        };
+
+        const VOXEL_MATERIALS = {
+            rock: { density: 1.0, color: 0x788896, emissive: 0x000000 },
+            iron: { density: 2.5, color: 0x4a6b82, emissive: 0x001122 },
+            ice:  { density: 0.6, color: 0x99e5ff, emissive: 0x112233 },
+            plasma: { density: 8.0, color: 0xff9900, emissive: 0xff3300 }
+        };
+
+        class VoxelBody {
+            constructor(id, name = "Celestial Voxel") {
+                this.id = id;
+                this.name = name;
+                this.pos = new THREE.Vector3();
+                this.vel = new THREE.Vector3();
+                this.acc = new THREE.Vector3();
+                
+                this.magneticDipole = new THREE.Vector3(0, 0, 0);
+                this.mass = 0;
+                this.voxels = [];
+                this.meshGroup = new THREE.Group();
+                this.instancedMeshes = {};
+                
+                // Trajectory trail buffer
+                this.trailMaxPoints = 150;
+                this.trailPositions = new Float32Array(this.trailMaxPoints * 3);
+                this.trailIndex = 0;
+                this.trailCount = 0;
+                this.trailGeometry = new THREE.BufferGeometry();
+                this.trailGeometry.setAttribute('position', new THREE.BufferAttribute(this.trailPositions, 3));
+                this.trailLine = new THREE.Line(
+                    this.trailGeometry,
+                    new THREE.LineBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.5 })
+                );
+                
+                scene.add(this.trailLine);
+            }
+
+            buildMesh() {
+                while (this.meshGroup.children.length > 0) {
+                    this.meshGroup.remove(this.meshGroup.children[0]);
+                }
+                this.instancedMeshes = {};
+
+                let totalMass = 0;
+                const com = new THREE.Vector3();
+
+                this.voxels.forEach(v => {
+                    const mat = VOXEL_MATERIALS[v.matKey] || VOXEL_MATERIALS.rock;
+                    totalMass += mat.density;
+                    com.addScaledVector(new THREE.Vector3(v.x, v.y, v.z), mat.density);
+                });
+
+                if (this.voxels.length > 0) {
+                    com.divideScalar(totalMass);
+                }
+                this.mass = totalMass;
+
+                const grouped = {};
+                this.voxels.forEach(v => {
+                    if (!grouped[v.matKey]) grouped[v.matKey] = [];
+                    grouped[v.matKey].push(v);
+                });
+
+                const dummy = new THREE.Object3D();
+                const voxelGeo = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+
+                for (const [matKey, list] of Object.entries(grouped)) {
+                    const matDef = VOXEL_MATERIALS[matKey];
+                    const mat = new THREE.MeshStandardMaterial({
+                        color: matDef.color,
+                        emissive: matDef.emissive,
+                        roughness: 0.4,
+                        metalness: matKey === 'iron' ? 0.8 : 0.2
+                    });
+
+                    const instanced = new THREE.InstancedMesh(voxelGeo, mat, list.length);
+                    instanced.castShadow = true;
+                    instanced.receiveShadow = true;
+
+                    list.forEach((v, idx) => {
+                        dummy.position.set(v.x - com.x, v.y - com.y, v.z - com.z);
+                        dummy.updateMatrix();
+                        instanced.setMatrixAt(idx, dummy.matrix);
+                    });
+
+                    instanced.instanceMatrix.needsUpdate = true;
+                    this.instancedMeshes[matKey] = instanced;
+                    this.meshGroup.add(instanced);
+                }
+
+                this.meshGroup.position.copy(this.pos);
+            }
+
+            updatePosition(dt) {
+                this.vel.addScaledVector(this.acc, dt);
+                this.pos.addScaledVector(this.vel, dt);
+                this.meshGroup.position.copy(this.pos);
+                this.acc.set(0, 0, 0);
+
+                const idx = (this.trailIndex % this.trailMaxPoints) * 3;
+                this.trailPositions[idx] = this.pos.x;
+                this.trailPositions[idx + 1] = this.pos.y;
+                this.trailPositions[idx + 2] = this.pos.z;
+                
+                this.trailIndex++;
+                if (this.trailCount < this.trailMaxPoints) this.trailCount++;
+                
+                this.trailGeometry.attributes.position.needsUpdate = true;
+                this.trailGeometry.setDrawRange(0, this.trailCount);
+            }
+
+            destroy() {
+                scene.remove(this.meshGroup);
+                scene.remove(this.trailLine);
+                this.trailGeometry.dispose();
+                for (const key in this.instancedMeshes) {
+                    this.instancedMeshes[key].geometry.dispose();
+                    this.instancedMeshes[key].material.dispose();
+                }
+            }
+        }
+
+        function createSphereVoxels(radius, matKey = 'rock') {
+            const voxels = [];
+            const rSq = radius * radius;
+            const rInt = Math.ceil(radius);
+
+            for (let x = -rInt; x <= rInt; x++) {
+                for (let y = -rInt; y <= rInt; y++) {
+                    for (let z = -rInt; z <= rInt; z++) {
+                        if (x * x + y * y + z * z <= rSq) {
+                            let currentMat = matKey;
+                            if (matKey === 'rock' && x*x + y*y + z*z <= (radius*0.4)**2) {
+                                currentMat = 'iron';
+                            }
+                            voxels.push({ x, y, z, matKey: currentMat });
+                        }
+                    }
+                }
+            }
+            return voxels;
+        }
+
+        function createCubeVoxels(size, matKey = 'iron') {
+            const voxels = [];
+            const half = Math.floor(size / 2);
+            for (let x = -half; x <= half; x++) {
+                for (let y = -half; y <= half; y++) {
+                    for (let z = -half; z <= half; z++) {
+                        voxels.push({ x, y, z, matKey });
+                    }
+                }
+            }
+            return voxels;
+        }
+
+        function createRingVoxels(radius, thickness, matKey = 'ice') {
+            const voxels = [];
+            for (let x = -radius - thickness; x <= radius + thickness; x++) {
+                for (let z = -radius - thickness; z <= radius + thickness; z++) {
+                    const dist = Math.sqrt(x * x + z * z);
+                    if (dist >= radius - thickness && dist <= radius + thickness) {
+                        voxels.push({ x, y: 0, z, matKey });
+                    }
+                }
+            }
+            return voxels;
+        }
+
+        let scene, camera, renderer, controls;
+        let bodies = [];
+        let bodyIdCounter = 1;
+
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x06080e);
+            scene.fog = new THREE.FogExp2(0x06080e, 0.0008);
+
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 8000);
+            camera.position.set(0, 40, 65);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxDistance = 2500;
+            controls.minDistance = 2;
+
+            const ambientLight = new THREE.AmbientLight(0x223344, 1.2);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            sunLight.position.set(80, 120, 80);
+            sunLight.castShadow = true;
+            scene.add(sunLight);
+
+            createStarfield();
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createStarfield() {
+            const starGeo = new THREE.BufferGeometry();
+            const count = 2500;
+            const positions = new Float32Array(count * 3);
+            for (let i = 0; i < count * 3; i += 3) {
+                positions[i] = (Math.random() - 0.5) * 1800;
+                positions[i + 1] = (Math.random() - 0.5) * 1800;
+                positions[i + 2] = (Math.random() - 0.5) * 1800;
+            }
+            starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.0, transparent: true, opacity: 0.7 });
+            const stars = new THREE.Points(starGeo, starMat);
+            scene.add(stars);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        let gravityGridMesh;
+        const GRID_SIZE = 120;
+        const GRID_DIVISIONS = 50;
+
+        function initGravityGrid() {
+            const gridGeo = new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE, GRID_DIVISIONS, GRID_DIVISIONS);
+            gridGeo.rotateX(-Math.PI / 2);
+
+            const gridMat = new THREE.MeshBasicMaterial({
+                color: 0x00f0ff,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.2
+            });
+
+            gravityGridMesh = new THREE.Mesh(gridGeo, gridMat);
+            gravityGridMesh.position.y = -10;
+            scene.add(gravityGridMesh);
+        }
+
+        function updateGravityGrid() {
+            if (!gravityGridMesh || !gravityGridMesh.visible) return;
+
+            const posAttr = gravityGridMesh.geometry.attributes.position;
+            for (let i = 0; i < posAttr.count; i++) {
+                const vx = posAttr.getX(i);
+                const vz = posAttr.getZ(i);
+
+                let potential = 0;
+                bodies.forEach(b => {
+                    const dx = vx - b.pos.x;
+                    const dz = vz - b.pos.z;
+                    const dist = Math.sqrt(dx * dx + dz * dz + 1.0);
+                    potential += (PHYSICS.G * b.mass) / (dist * 0.8);
+                });
+
+                posAttr.setY(i, Math.max(-20, -potential * 0.15));
+            }
+            posAttr.needsUpdate = true;
+        }
+
+        let magneticLinesGroup;
+
+        function initMagneticLines() {
+            magneticLinesGroup = new THREE.Group();
+            scene.add(magneticLinesGroup);
+        }
+
+        function updateMagneticLines() {
+            magneticLinesGroup.clear();
+            if (!showMagneticLines) return;
+
+            const magBodies = bodies.filter(b => b.magneticDipole.lengthSq() > 0.1);
+            if (magBodies.length === 0) return;
+
+            magBodies.forEach(b => {
+                const numLines = 10;
+                for (let i = 0; i < numLines; i++) {
+                    const angle = (i / numLines) * Math.PI * 2;
+                    const points = [];
+                    let curr = new THREE.Vector3(
+                        b.pos.x + Math.cos(angle) * 1.5,
+                        b.pos.y + 0.5,
+                        b.pos.z + Math.sin(angle) * 1.5
+                    );
+                    points.push(curr.clone());
+
+                    for (let step = 0; step < 25; step++) {
+                        const B = new THREE.Vector3();
+                        magBodies.forEach(other => {
+                            const r = new THREE.Vector3().subVectors(curr, other.pos);
+                            const rMag = r.length();
+                            if (rMag > 0.5) {
+                                const rHat = r.clone().normalize();
+                                const m = other.magneticDipole;
+                                const mDotR = m.dot(rHat);
+                                const term1 = rHat.multiplyScalar(3 * mDotR);
+                                const bVec = new THREE.Vector3().subVectors(term1, m).divideScalar(Math.pow(rMag, 3));
+                                B.add(bVec.multiplyScalar(PHYSICS.MU0));
+                            }
+                        });
+
+                        if (B.lengthSq() < 0.0001) break;
+                        B.normalize().multiplyScalar(0.8);
+                        curr.add(B);
+                        points.push(curr.clone());
+                    }
+
+                    if (points.length > 2) {
+                        const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
+                        const lineMat = new THREE.LineBasicMaterial({ color: 0xff007f, transparent: true, opacity: 0.45 });
+                        magneticLinesGroup.add(new THREE.Line(lineGeo, lineMat));
+                    }
+                }
+            });
+        }
+
+        function computePhysicsStep(dt) {
+            const numBodies = bodies.length;
+
+            for (let i = 0; i < numBodies; i++) {
+                const b1 = bodies[i];
+                for (let j = i + 1; j < numBodies; j++) {
+                    const b2 = bodies[j];
+
+                    const rVec = new THREE.Vector3().subVectors(b2.pos, b1.pos);
+                    const distSq = rVec.lengthSq() + PHYSICS.softeningSq;
+                    const dist = Math.sqrt(distSq);
+
+                    // Gravity
+                    const fGravityMag = (PHYSICS.G * b1.mass * b2.mass) / distSq;
+                    const fGravity = rVec.clone().normalize().multiplyScalar(fGravityMag);
+
+                    // Magnetic Force
+                    const fMag = new THREE.Vector3();
+                    if (b1.magneticDipole.lengthSq() > 0 && b2.magneticDipole.lengthSq() > 0) {
+                        const m1 = b1.magneticDipole;
+                        const m2 = b2.magneticDipole;
+                        const fMagVal = (PHYSICS.MU0 * m1.length() * m2.length()) / (distSq * distSq);
+                        fMag.copy(rVec).normalize().multiplyScalar(fMagVal);
+                    }
+
+                    const totalForce = fGravity.add(fMag);
+
+                    b1.acc.addScaledVector(totalForce, 1.0 / b1.mass);
+                    b2.acc.addScaledVector(totalForce, -1.0 / b2.mass);
+
+                    if (PHYSICS.collisionMode !== 'ignore' && dist < 2.5) {
+                        handleCollision(b1, b2);
+                    }
+                }
+            }
+
+            bodies.forEach(b => b.updatePosition(dt));
+        }
+
+        function handleCollision(b1, b2) {
+            if (PHYSICS.collisionMode === 'merge') {
+                const primary = b1.mass >= b2.mass ? b1 : b2;
+                const secondary = b1.mass >= b2.mass ? b2 : b1;
+
+                const totalMass = primary.mass + secondary.mass;
+                primary.vel.multiplyScalar(primary.mass)
+                    .addScaledVector(secondary.vel, secondary.mass)
+                    .divideScalar(totalMass);
+
+                const posOffset = new THREE.Vector3().subVectors(secondary.pos, primary.pos);
+                secondary.voxels.forEach(v => {
+                    primary.voxels.push({
+                        x: Math.round(v.x + posOffset.x),
+                        y: Math.round(v.y + posOffset.y),
+                        z: Math.round(v.z + posOffset.z),
+                        matKey: v.matKey
+                    });
+                });
+
+                primary.buildMesh();
+                removeBody(secondary);
+                showToast(`Merged: ${secondary.name} into ${primary.name}`);
+            } else if (PHYSICS.collisionMode === 'bounce') {
+                const temp = b1.vel.clone();
+                b1.vel.copy(b2.vel);
+                b2.vel.copy(temp);
+            }
+        }
+
+        let isLaunchPlacementMode = false;
+        let launchStartPos = null;
+        let launchVectorLine = null;
+        let selectedBodyForInspect = null;
+        let trackedBody = null;
+        let showMagneticLines = true;
+
+        function initInteractions() {
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+            const lineMat = new THREE.LineDashedMaterial({ color: 0x00f0ff, dashSize: 0.5, gapSize: 0.25 });
+            const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+            launchVectorLine = new THREE.Line(lineGeo, lineMat);
+            launchVectorLine.visible = false;
+            scene.add(launchVectorLine);
+
+            function getPointerPos(e) {
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                mouse.x = (clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+            }
+
+            const dom = renderer.domElement;
+
+            dom.addEventListener('pointerdown', (e) => {
+                if (e.button !== 0 && !e.touches) return;
+                getPointerPos(e);
+
+                if (isLaunchPlacementMode) {
+                    raycaster.setFromCamera(mouse, camera);
+                    const target = new THREE.Vector3();
+                    if (raycaster.ray.intersectPlane(plane, target)) {
+                        launchStartPos = target.clone();
+                        launchVectorLine.geometry.setFromPoints([launchStartPos, launchStartPos]);
+                        launchVectorLine.visible = true;
+                    }
+                } else {
+                    raycaster.setFromCamera(mouse, camera);
+                    const meshes = bodies.map(b => b.meshGroup);
+                    const intersects = raycaster.intersectObjects(meshes, true);
+                    if (intersects.length > 0) {
+                        let obj = intersects[0].object;
+                        while (obj.parent && !obj.parent.isScene && !obj.userData.bodyRef) {
+                            obj = obj.parent;
+                        }
+                        const body = bodies.find(b => b.meshGroup === obj || b.meshGroup === obj.parent);
+                        if (body) selectBodyForInspector(body);
+                    }
+                }
+            });
+
+            dom.addEventListener('pointermove', (e) => {
+                if (isLaunchPlacementMode && launchStartPos) {
+                    getPointerPos(e);
+                    raycaster.setFromCamera(mouse, camera);
+                    const target = new THREE.Vector3();
+                    if (raycaster.ray.intersectPlane(plane, target)) {
+                        launchVectorLine.geometry.setFromPoints([launchStartPos, target]);
+                        launchVectorLine.computeLineDistances();
+                    }
+                }
+            });
+
+            dom.addEventListener('pointerup', (e) => {
+                if (isLaunchPlacementMode && launchStartPos) {
+                    getPointerPos(e);
+                    raycaster.setFromCamera(mouse, camera);
+                    const target = new THREE.Vector3();
+                    if (raycaster.ray.intersectPlane(plane, target)) {
+                        const vel = new THREE.Vector3().subVectors(launchStartPos, target).multiplyScalar(0.2);
+                        spawnUserConfiguredBody(launchStartPos, vel);
+                    }
+                    launchStartPos = null;
+                    launchVectorLine.visible = false;
+                    isLaunchPlacementMode = false;
+                    document.getElementById('btn-spawn-mode').classList.remove('active');
+                    showToast('Voxel Celestial Body Launched!');
+                }
+            });
+        }
+
+        function spawnUserConfiguredBody(pos, vel) {
+            const shape = document.getElementById('spawn-shape').value;
+            const matKey = document.getElementById('spawn-material').value;
+            const radius = parseFloat(document.getElementById('spawn-radius').value);
+            const magZ = parseFloat(document.getElementById('spawn-mag').value);
+
+            let voxels = [];
+            if (shape === 'sphere') voxels = createSphereVoxels(radius, matKey);
+            else if (shape === 'cube') voxels = createCubeVoxels(radius * 1.5, matKey);
+            else if (shape === 'ring') voxels = createRingVoxels(radius * 1.5, 1, matKey);
+            else voxels = createSphereVoxels(radius, matKey).filter(() => Math.random() > 0.3);
+
+            const body = new VoxelBody(bodyIdCounter++, `Body #${bodyIdCounter}`);
+            body.pos.copy(pos);
+            body.vel.copy(vel);
+            body.magneticDipole.set(0, 0, magZ);
+            body.voxels = voxels;
+            body.buildMesh();
+            body.meshGroup.userData.bodyRef = body;
+
+            scene.add(body.meshGroup);
+            bodies.push(body);
+            updateStatsUI();
+        }
+
+        function removeBody(body) {
+            const idx = bodies.indexOf(body);
+            if (idx !== -1) {
+                if (selectedBodyForInspect === body) deselectInspector();
+                if (trackedBody === body) trackedBody = null;
+                body.destroy();
+                bodies.splice(idx, 1);
+                updateStatsUI();
+            }
+        }
+
+        function loadPreset(type) {
+            while (bodies.length > 0) removeBody(bodies[0]);
+
+            if (type === 'solar') {
+                const sun = new VoxelBody(bodyIdCounter++, "Sol Star");
+                sun.pos.set(0, 0, 0);
+                sun.voxels = createSphereVoxels(4.0, 'plasma');
+                sun.buildMesh();
+                sun.magneticDipole.set(0, 0, 15);
+                scene.add(sun.meshGroup);
+                bodies.push(sun);
+
+                const earth = new VoxelBody(bodyIdCounter++, "Terra");
+                earth.pos.set(28, 0, 0);
+                earth.vel.set(0, 0, -2.1);
+                earth.voxels = createSphereVoxels(2, 'rock');
+                earth.buildMesh();
+                earth.magneticDipole.set(0, 0, 5);
+                scene.add(earth.meshGroup);
+                bodies.push(earth);
+
+                const moon = new VoxelBody(bodyIdCounter++, "Luna");
+                moon.pos.set(32, 0, 0);
+                moon.vel.set(0, 0, -2.8);
+                moon.voxels = createSphereVoxels(1, 'ice');
+                moon.buildMesh();
+                scene.add(moon.meshGroup);
+                bodies.push(moon);
+
+                showToast("Scenario: Solar System");
+            } else if (type === 'binary') {
+                const s1 = new VoxelBody(bodyIdCounter++, "Alpha Magnetar");
+                s1.pos.set(-14, 0, 0);
+                s1.vel.set(0, 0, 1.4);
+                s1.magneticDipole.set(0, 0, 35);
+                s1.voxels = createSphereVoxels(3, 'plasma');
+                s1.buildMesh();
+                scene.add(s1.meshGroup);
+                bodies.push(s1);
+
+                const s2 = new VoxelBody(bodyIdCounter++, "Beta Magnetar");
+                s2.pos.set(14, 0, 0);
+                s2.vel.set(0, 0, -1.4);
+                s2.magneticDipole.set(0, 0, -35);
+                s2.voxels = createSphereVoxels(3, 'plasma');
+                s2.buildMesh();
+                scene.add(s2.meshGroup);
+                bodies.push(s2);
+
+                showToast("Scenario: Binary Magnetars");
+            } else if (type === '3body') {
+                for (let i = 0; i < 3; i++) {
+                    const angle = (i / 3) * Math.PI * 2;
+                    const b = new VoxelBody(bodyIdCounter++, `Star #${i+1}`);
+                    b.pos.set(Math.cos(angle) * 18, 0, Math.sin(angle) * 18);
+                    b.vel.set(-Math.sin(angle) * 1.2, 0, Math.cos(angle) * 1.2);
+                    b.voxels = createSphereVoxels(2.5, 'plasma');
+                    b.buildMesh();
+                    scene.add(b.meshGroup);
+                    bodies.push(b);
+                }
+                showToast("Scenario: Chaotic 3-Body");
+            } else if (type === 'ring') {
+                const planet = new VoxelBody(bodyIdCounter++, "Giant Ring Planet");
+                planet.pos.set(0, 0, 0);
+                planet.voxels = createSphereVoxels(4, 'rock');
+                planet.buildMesh();
+                scene.add(planet.meshGroup);
+                bodies.push(planet);
+
+                const ring = new VoxelBody(bodyIdCounter++, "Debris Ring");
+                ring.pos.set(0, 0, 0);
+                ring.voxels = createRingVoxels(12, 2, 'ice');
+                ring.buildMesh();
+                scene.add(ring.meshGroup);
+                bodies.push(ring);
+
+                showToast("Scenario: Ring World");
+            } else if (type === 'magnetar') {
+                const core = new VoxelBody(bodyIdCounter++, "Magnetic Core");
+                core.pos.set(0, 0, 0);
+                core.magneticDipole.set(0, 0, 70);
+                core.voxels = createSphereVoxels(3.5, 'iron');
+                core.buildMesh();
+                scene.add(core.meshGroup);
+                bodies.push(core);
+
+                for (let i = 0; i < 5; i++) {
+                    const ast = new VoxelBody(bodyIdCounter++, `Asteroid ${i+1}`);
+                    ast.pos.set((Math.random() - 0.5) * 35, 0, (Math.random() - 0.5) * 35);
+                    ast.vel.set((Math.random() - 0.5) * 2, 0, (Math.random() - 0.5) * 2);
+                    ast.voxels = createCubeVoxels(2, 'iron');
+                    ast.buildMesh();
+                    scene.add(ast.meshGroup);
+                    bodies.push(ast);
+                }
+                showToast("Scenario: Magnetic Trap");
+            }
+
+            updateStatsUI();
+        }
+
+        let isPaused = false;
+        let lastTime = performance.now();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+            const delta = (now - lastTime) / 1000;
+
+            if (now % 500 < 20) {
+                document.getElementById('stat-fps').innerText = Math.round(1 / delta) || 60;
+            }
+            lastTime = now;
+
+            if (!isPaused) {
+                computePhysicsStep(PHYSICS.timeStep * PHYSICS.timeScale);
+            }
+
+            updateGravityGrid();
+            updateMagneticLines();
+
+            if (trackedBody) {
+                controls.target.lerp(trackedBody.pos, 0.1);
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function setupUI() {
+            const playBtn = document.getElementById('btn-play-pause');
+            playBtn.onclick = () => {
+                isPaused = !isPaused;
+                playBtn.innerHTML = isPaused ? '<i class="fa-solid fa-play text-sm"></i>' : '<i class="fa-solid fa-pause text-sm"></i>';
+                showToast(isPaused ? 'Paused' : 'Resumed');
+            };
+
+            document.getElementById('btn-step').onclick = () => {
+                computePhysicsStep(PHYSICS.timeStep);
+                showToast('Stepped 1 Frame');
+            };
+
+            document.getElementById('btn-reset').onclick = () => {
+                while (bodies.length > 0) removeBody(bodies[0]);
+                showToast('Cleared Scene');
+            };
+
+            // Drawer Toggle
+            const drawer = document.getElementById('drawer-panel');
+            document.getElementById('btn-drawer-toggle').onclick = () => drawer.classList.remove('translate-x-full');
+            document.getElementById('btn-drawer-close').onclick = () => drawer.classList.add('translate-x-full');
+
+            // Quick Toggle Buttons
+            const gridBtn = document.getElementById('btn-toggle-grid');
+            gridBtn.onclick = () => {
+                gridBtn.classList.toggle('active');
+                gravityGridMesh.visible = gridBtn.classList.contains('active');
+            };
+
+            const magBtn = document.getElementById('btn-toggle-magnetic');
+            magBtn.onclick = () => {
+                magBtn.classList.toggle('active');
+                showMagneticLines = magBtn.classList.contains('active');
+            };
+
+            const orbitBtn = document.getElementById('btn-toggle-orbits');
+            orbitBtn.onclick = () => {
+                orbitBtn.classList.toggle('active');
+                const vis = orbitBtn.classList.contains('active');
+                bodies.forEach(b => b.trailLine.visible = vis);
+            };
+
+            // Launch Mode Toggle
+            const spawnBtn = document.getElementById('btn-spawn-mode');
+            spawnBtn.onclick = () => {
+                isLaunchPlacementMode = !isLaunchPlacementMode;
+                spawnBtn.classList.toggle('active', isLaunchPlacementMode);
+                showToast(isLaunchPlacementMode ? 'Tap canvas and drag vector to launch' : 'Launch Mode Off');
+            };
+
+            // Drawer Tabs Navigation
+            const tabs = {
+                presets: document.getElementById('tab-presets'),
+                create: document.getElementById('tab-create'),
+                physics: document.getElementById('tab-physics'),
+                inspect: document.getElementById('tab-inspect')
+            };
+
+            const contents = {
+                presets: document.getElementById('content-presets'),
+                create: document.getElementById('content-create'),
+                physics: document.getElementById('content-physics'),
+                inspect: document.getElementById('content-inspect')
+            };
+
+            Object.keys(tabs).forEach(key => {
+                tabs[key].onclick = () => {
+                    Object.keys(tabs).forEach(k => {
+                        tabs[k].className = 'flex-1 py-1.5 rounded-lg text-center font-semibold text-slate-400 hover:text-white';
+                        contents[k].classList.add('hidden');
+                    });
+                    tabs[key].className = 'flex-1 py-1.5 rounded-lg text-center font-semibold text-accent-cyan bg-dark-800 border border-accent-cyan/30';
+                    contents[key].classList.remove('hidden');
+                };
+            });
+
+            // Preset Buttons
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.onclick = () => {
+                    loadPreset(btn.dataset.preset);
+                    drawer.classList.add('translate-x-full');
+                };
+            });
+
+            // Sliders & Controls
+            document.getElementById('time-speed').oninput = (e) => {
+                PHYSICS.timeScale = parseFloat(e.target.value);
+                document.getElementById('speed-label').innerText = `${PHYSICS.timeScale.toFixed(1)}x`;
+            };
+
+            document.getElementById('g-constant').oninput = (e) => {
+                PHYSICS.G = parseFloat(e.target.value);
+                document.getElementById('g-const-val').innerText = PHYSICS.G.toFixed(1);
+            };
+
+            document.getElementById('mu-constant').oninput = (e) => {
+                PHYSICS.MU0 = parseFloat(e.target.value);
+                document.getElementById('mu-const-val').innerText = PHYSICS.MU0.toFixed(1);
+            };
+
+            document.getElementById('spawn-radius').oninput = (e) => {
+                document.getElementById('spawn-radius-val').innerText = parseFloat(e.target.value).toFixed(1);
+            };
+
+            document.getElementById('spawn-mag').oninput = (e) => {
+                document.getElementById('spawn-mag-val').innerText = parseFloat(e.target.value).toFixed(1);
+            };
+
+            document.getElementById('collision-mode').onchange = (e) => {
+                PHYSICS.collisionMode = e.target.value;
+            };
+
+            document.getElementById('btn-cam-reset').onclick = () => {
+                trackedBody = null;
+                camera.position.set(0, 40, 65);
+                controls.target.set(0, 0, 0);
+            };
+        }
+
+        function selectBodyForInspector(body) {
+            selectedBodyForInspect = body;
+            document.getElementById('inspect-none').classList.add('hidden');
+            document.getElementById('inspect-content').classList.remove('hidden');
+
+            document.getElementById('inspect-title').innerText = body.name;
+            document.getElementById('inspect-voxels').innerText = body.voxels.length;
+            document.getElementById('inspect-mass').innerText = body.mass.toFixed(1);
+
+            document.getElementById('btn-inspect-track').onclick = () => {
+                trackedBody = body;
+                showToast(`Tracking ${body.name}`);
+            };
+
+            document.getElementById('btn-inspect-delete').onclick = () => {
+                removeBody(body);
+                showToast('Body Destroyed');
+            };
+
+            document.getElementById('tab-inspect').click();
+            document.getElementById('drawer-panel').classList.remove('translate-x-full');
+        }
+
+        function deselectInspector() {
+            selectedBodyForInspect = null;
+            document.getElementById('inspect-none').classList.remove('hidden');
+            document.getElementById('inspect-content').classList.add('hidden');
+        }
+
+        function updateStatsUI() {
+            document.getElementById('stat-bodies').innerText = bodies.length;
+            let totalVoxels = 0;
+            bodies.forEach(b => totalVoxels += b.voxels.length);
+            document.getElementById('stat-voxels').innerText = totalVoxels;
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast-msg');
+            toast.innerText = msg;
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 2200);
+        }
+
+        window.onload = () => {
+            initThree();
+            initGravityGrid();
+            initMagneticLines();
+            initInteractions();
+            setupUI();
+
+            loadPreset('solar');
+            animate();
+        };
+    </script>
+</body>
+</html>
